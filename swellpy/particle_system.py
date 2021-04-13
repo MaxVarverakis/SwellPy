@@ -28,11 +28,15 @@ and is NOT a method of the ParticleSystem class.
 """
 
 class ParticleSystem():
-    def __init__(self, N, boxsize=None, seed=None):
+    def __init__(self, N, boxsize=None,boxsize_x=None, boxsize_y=None, seed=None):
         self._name = "ParticleSystem"
         self.N = N
         if (boxsize):
             self.boxsize = boxsize
+        elif (boxsize_x) and (boxsize_y):
+            self.boxsize = np.sqrt(boxsize_x*boxsize_y)
+            self.boxsize_x = boxsize_x
+            self.boxsize_y = boxsize_y
         else:
             self.boxsize = np.sqrt(N*np.pi/(4 * 0.2))
         self.centers = None
