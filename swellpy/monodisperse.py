@@ -79,7 +79,7 @@ class Monodisperse(ParticleSystem):
         # Note cKD can retun numpy arrays in query pairs
         # but there is a deallocation bug in the scipy.spatial code
         # converting from a set to an array avoids it
-        if (xform_boxsize_x=None) and (xform_boxsize_y=None):
+        if (xform_boxsize_x==None) and (xform_boxsize_y==None):
             tree = cKDTree(self.centers, boxsize = self.boxsize)
         else:
             tree = cKDTree(self.centers, boxsize = (xform_boxsize_x, xform_boxsize_y))
