@@ -28,7 +28,7 @@ class Monodisperse(ParticleSystem):
             (float): the equivalent diameter
         """
         af = np.array(area_frac, ndmin=1)
-        if boxsize==None:
+        if self.boxsize==None:
             return 2 * np.sqrt(af * self.boxsize_x*self.boxsize_y / (self.N * np.pi))
         else:
             return 2 * np.sqrt(af * self.boxsize**2 / (self.N * np.pi))
