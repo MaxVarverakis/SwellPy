@@ -15,12 +15,7 @@ class Monodisperse(ParticleSystem):
             boxsize (float): optional. Length of the sides of the box
             seed (int): optional. Seed for initial particle placement randomiztion
         """
-        if  (boxsize_x==None) and (boxsize_y==None):
-            boxsize_xi=boxsize
-            boxsize_yi=boxsize
-            super(Monodisperse, self).__init__(N, boxsize, boxsize_xi, boxsize_yi, seed=None)
-        else:
-            super(Monodisperse, self).__init__(N, boxsize, boxsize_x, boxsize_y, seed=None)
+        super(Monodisperse, self).__init__(N, boxsize, boxsize_x, boxsize_y, seed=None)
         self._name = "Monodisperse"
     
     def equiv_swell(self, area_frac):
