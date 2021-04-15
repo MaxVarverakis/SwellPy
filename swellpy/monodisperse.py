@@ -212,7 +212,7 @@ class Monodisperse(ParticleSystem):
                 swell = self.equiv_swell(frac)
                 xform_boxsize_x = (self.boxsize_x*scale_x/scale_y)
                 xform_boxsize_y = (self.boxsize_y*scale_y/scale_x)
-                if (scale_x==1) and (scale_y=1):
+                if (scale_x==1) and (scale_y==1):
                     pairs = self._tag(swell)
                 else:
                     for i in self.centers: #Transform centers
