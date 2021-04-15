@@ -121,6 +121,28 @@ class Monodisperse(ParticleSystem):
         swell = self.equiv_swell(area_frac)
         return self._tag(swell)
     
+    def _tag_xform(self, swell, xform_boxsize_x, xform_boxsize_y):
+        """ 
+        Get the center indices of the particles that overlap at a 
+        specific swell. Takes in account the transformation of boxsize.
+        
+        Parameters:
+            swell (float): diameter length of the particles
+            xform_boxsize_x (float): X transform boxsize with respect to scaling size
+            xform_boxsize_y (float): Y transform boxsize with respect to scaling size
+        Returns:
+            (np.array): An array object whose elements are pairs of int values that correspond
+                the the center indices of overlapping particles
+        """
+
+        # Note cKD can retun numpy arrays in query pairs
+        # but there is a deallocation bug in the scipy.spatial code
+        # converting from a set to an array avoids it
+        tree = cKDTree(self.centers, boxsize = (xform_boxsize_x, xform_boxsize_y))
+        pairs = tree.query_pairs(swell)
+        pairs = np.array(list(pairs), dtype=np.int64)
+        return pairs
+    
     def repel(self, pairs, area_frac, kick):
         """
         Repels overlapping particles.
@@ -190,14 +212,16 @@ class Monodisperse(ParticleSystem):
                 swell = self.equiv_swell(frac)
                 xform_boxsize_x = (self.boxsize_x*scale_x/scale_y)
                 xform_boxsize_y = (self.boxsize_y*scale_y/scale_x)
-                pairs = self._tag(swell)
-                for i in self.centers: #Transform centers
-                    i[0] = i[0]*(scale_x/scale_y)
-                    i[1] = i[1]*(scale_y/scale_x)
-                pairs = self._tag_xform(swell, xform_boxsize_x, xform_boxsize_y)
-                for i in self.centers: #Transform centers back
-                    i[0] = i[0]*(scale_y/scale_x)
-                    i[1] = i[1]*(scale_x/scale_y)
+                if (scale_x==1) and (scale_y=1):
+                    pairs = self._tag(swell)
+                else:
+                    for i in self.centers: #Transform centers
+                        i[0] = i[0]*(scale_x/scale_y)
+                        i[1] = i[1]*(scale_y/scale_x)
+                    pairs = self._tag_xform(swell, xform_boxsize_x, xform_boxsize_y)
+                    for i in self.centers: #Transform centers back
+                        i[0] = i[0]*(scale_y/scale_x)
+                        i[1] = i[1]*(scale_x/scale_y)
                 if len(pairs) == 0:
                     untagged += 1
                     continue
