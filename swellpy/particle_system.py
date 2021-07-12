@@ -79,7 +79,6 @@ class ParticleSystem():
         """
         if noise_type=='gauss':
             centers = self.centers
-            boxsize = self.boxsize
             kicks = np.random.normal(0, noise_val, size=np.shape(centers))
             self.centers = centers+kicks
             pass
@@ -93,11 +92,41 @@ class ParticleSystem():
                 reset_indicies.append(options[i])
                 np.delete(options, i)
             for i in reset_indicies:
-                self.centers[i]=self.boxsize*np.random.random_sample((2,))
+                self.centers[i][0]=self.boxsize_x*np.random.random_sample((1,))
+                self.centers[i][1]=self.boxsize_y*np.random.random_sample((1,))
         else:
             pass
             
+    def anisotropic_noise(self, noise_type, noise_val,scale_x,scale_y):
+        """
+        adds random noise to the position of each particle taking into accound transform size, typically used before each swell
         
+        Args: 
+            noise_type: none for no noise
+                        gauss for a gaussian distribution about the particle position,
+                        drop for reset fraction of particles each cycle
+            noise_val:  standard deviation for gauss
+                        fraction of active particles for drop
+        """
+        if noise_type=='gauss':
+            centers = self.centers
+            kicks = np.random.normal(0, noise_val, size=np.shape(centers))
+            self.centers = centers+kicks
+            pass
+        elif noise_type=='drop':
+            particles=len(self.centers)
+            reset_indicies=[]
+            options=np.linspace(0, particles-1, particles)
+            options=options.astype(int)
+            while len(reset_indicies)<(noise_val*particles):
+                i=np.random.randint(0,len(options)-1)
+                reset_indicies.append(options[i])
+                np.delete(options, i)
+            for i in reset_indicies:
+                self.centers[i][0]=self.boxsize_x*scale_x*np.random.random_sample((1,))
+                self.centers[i][1]=self.boxsize_y*scale_y*np.random.random_sample((1,))
+        else:
+            pass
     
     def _repel(self, pairs, swell, kick):
         """ 
