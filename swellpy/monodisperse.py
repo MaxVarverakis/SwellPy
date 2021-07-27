@@ -3,23 +3,15 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as tck
 from matplotlib.patches import Circle
 from matplotlib.patches import Ellipse
+from matplotlib.patches import FancyArrowPatch
 from scipy.spatial import cKDTree
 from peakutils import peak
 import crepel
 from .particle_system import ParticleSystem
+import random
 import pandas as pd
 
 class Monodisperse(ParticleSystem):
-
-    def moving_average(self,x, w):
-        """
-        Smoothens out dataset using rolling averages
-
-        Args:
-            x (array): dataset
-            w (int): number of input elements to be averaged over
-        """
-        return np.convolve(x, np.ones(w), 'valid') / w
 
     def __init__(self, N, boxsize=None, boxsize_x=None, boxsize_y=None, seed=None):
         """
@@ -31,6 +23,17 @@ class Monodisperse(ParticleSystem):
         super(Monodisperse, self).__init__(N, boxsize, boxsize_x, boxsize_y, seed=None)
         self._name = "Monodisperse"
     
+    def moving_average(self,x, w):
+        """
+        Smoothens out dataset using rolling averages
+
+        Args:
+            x (array): dataset
+            w (int): number of input elements to be averaged over
+        """
+        return np.convolve(x, np.ones(w), 'valid') / w
+
+
     def equiv_swell(self, area_frac):
         """
         Finds the particle diameter that is equivalent to some area fraction.
@@ -211,7 +214,7 @@ class Monodisperse(ParticleSystem):
                 #/scale_y
                 )
     
-    def train(self, area_frac, kick, cycles=np.inf, noise_type='none', noise_val=0, counter='kicks', scale_x=1, scale_y=1,iso_noise = True, noise_data = False):
+    def train(self, area_frac, kick, cycles=np.inf, noise_type='none', noise_val=0, particle_frac = 1, counter='kicks', scale_x=1, scale_y=1, iso_noise = True, noise_data = False):
         """
         Repeatedly tags and repels overlapping particles for some number of cycles
         
@@ -219,8 +222,12 @@ class Monodisperse(ParticleSystem):
             area_frac (float or list): the area fraction to train on
             kick (float): the maximum distance particles are repelled
             cycles (int): The upper bound on the number of cycles. Defaults to infinite.
+            noise_type: none for no noise
+                gauss for a gaussian distribution about the particle position,
+                drop for reset fraction of particles each cycle
             noise (float): Value for standard deviation of gaussian noise to particle 
                 position in each cycle, defaults to 0
+            particle_frac (for 'gauss' noise): fraction of active particles to apply gaussian noise to
             counter (kicks or list): whether to count a cycle as one kick or 
                 one run over the input list
             scale_x (float): scale system in x-direction (function keeps particle area the same, no need for double inputting to account for particle area)
@@ -230,7 +237,8 @@ class Monodisperse(ParticleSystem):
             noise_data (bool): default False.  True: returns an array with the change in (x,y) of particles chosen for noise
 
         Returns:
-            (int) the number of tagging and repelling cycles until no particles overlapped
+            (list (int if nois_data == False)) First element is the number of tagging and repelling cycles until no particles overlapped
+            and second element is if noise_data == True: returns an array with the change in (x,y) of particles chosen for noise
         """
         if not (counter=='kicks' or counter=='list'):
             print('invalid counter parameter, no training performed')
@@ -246,7 +254,7 @@ class Monodisperse(ParticleSystem):
             for frac in area_frac:
                 coords = self.centers.copy()
                 if iso_noise == True or (scale_x==1 and scale_y==1):
-                    self.pos_noise(noise_type, noise_val)
+                    self.pos_noise(noise_type, noise_val, particle_frac)
                     self.wrap()
                     if noise_data == True:
                         for i in range(len(self.centers)):
@@ -258,20 +266,17 @@ class Monodisperse(ParticleSystem):
                 if (scale_x==1) and (scale_y==1):
                     pairs = self._tag(swell)
                 else:
+                    self.transform_centers(scale_x,scale_y)
+                    coords = self.centers.copy()
                     if iso_noise == False:
-                        self.anisotropic_noise(noise_type,noise_val,scale_x,scale_y)
-                        self.wrap()
-                        if noise_data == True:
+                        self.anisotropic_noise(noise_type,noise_val,particle_frac,scale_x,scale_y)
+                        self.anisotropic_wrap(scale_x, scale_y)
+                    pairs = self._tag_xform(swell, xform_boxsize_x, xform_boxsize_y)
+                    if noise_data == True:
                             for i in range(len(self.centers)):
                                 if np.all(coords[i] == self.centers[i]) == False:
                                     disp.append([self.centers[i][0] - coords[i][0], self.centers[i][1] - coords[i][1]])
-                    for i in self.centers: #Transform centers
-                        i[0] = i[0]*(scale_x)
-                        i[1] = i[1]*(scale_y)
-                    pairs = self._tag_xform(swell, xform_boxsize_x, xform_boxsize_y)
-                    for i in self.centers: #Transform centers back
-                        i[0] = i[0]*(scale_y)
-                        i[1] = i[1]*(scale_x)
+                    self.inv_transform_centers(scale_x, scale_y)
                 if len(pairs) == 0:
                     untagged += 1
                     continue
@@ -285,9 +290,12 @@ class Monodisperse(ParticleSystem):
                 count += 1
             if (untagged == len(area_frac) and noise_val == 0):
                 break
-        return [count,disp]
+        if noise_data == False:
+            return count
+        else:
+            return [count,disp]
     
-    def noise_data(self, area_frac, kick, cycles, noise_type, noise_val, counter = 'list', scale_x = 1, scale_y = 1, iso_noise = True):
+    def noise_data(self, area_frac, kick, cycles, noise_type, noise_val, particle_frac = 1, counter = 'list', scale_x = 1, scale_y = 1, iso_noise = True):
         """
         Trains the system and finds the distribution of particle displacement and angle for particles chosen by noise for the last (cycles) cycles
         *** Only works for one area fraction at a time ***
@@ -296,8 +304,12 @@ class Monodisperse(ParticleSystem):
             area_frac (float): the area fraction to train on
             kick (float): the maximum distance particles are repelled
             cycles (int): The upper bound on the number of cycles to train and to gather noise data
+            noise_type: none for no noise
+                gauss for a gaussian distribution about the particle position,
+                drop for reset fraction of particles each cycle
             noise (float): Value for standard deviation of gaussian noise to particle 
                 position in each cycle
+            particle_frac (for 'gauss' noise): fraction of active particles to apply gaussian noise to
             counter (kicks or list): whether to count a cycle as one kick or 
                 one run over the input list (defaults to list)
             scale_x (float): scale system in x-direction (function keeps particle area the same, no need for double inputting to account for particle area) (defaults to 1)
@@ -309,7 +321,7 @@ class Monodisperse(ParticleSystem):
             (array) Array containing four sub-arrays for the distribution and mean of particle displacement and angle for particles chosen by noise.
             The array is composed of [[displacement],[displacement mean],[displacement standard deviation],[angle],[angle mean],[angle standard deviation]].
         """
-        displacement = self.train(area_frac, kick, cycles, noise_type, noise_val, counter, scale_x, scale_y, iso_noise, noise_data = True)[1]
+        displacement = self.train(area_frac, kick, cycles, noise_type, noise_val, particle_frac, counter, scale_x, scale_y, iso_noise, noise_data = True)[1]
         disp = []
         theta  = []
         for i in range(len(displacement)):
@@ -321,9 +333,9 @@ class Monodisperse(ParticleSystem):
         ds = np.std(disp)
         tm = np.mean(theta)
         ts = np.std(theta)
-        return([[disp],[dm],[ds],[theta],[tm],[ts]])
+        return(disp,dm,ds,theta,tm,ts)
 
-    def noise_data_plot(self, area_frac, kick, cycles, noise_type, noise_val, counter = 'list', scale_x = 1, scale_y = 1, iso_noise = True):
+    def noise_data_plot(self, area_frac, kick, cycles, noise_type, noise_val, particle_frac = 1, counter = 'list', scale_x = 1, scale_y = 1, iso_noise = True):
         """
         Trains the system and finds the distribution of particle displacement and angle for particles chosen by noise for the last (cycles) cycles
         *** Only works for one area fraction at a time ***
@@ -332,8 +344,12 @@ class Monodisperse(ParticleSystem):
             area_frac (float): the area fraction to train on
             kick (float): the maximum distance particles are repelled
             cycles (int): The upper bound on the number of cycles to train and to gather noise data
+            noise_type: none for no noise
+                gauss for a gaussian distribution about the particle position,
+                drop for reset fraction of particles each cycle
             noise (float): Value for standard deviation of gaussian noise to particle 
                 position in each cycle
+            particle_frac (for 'gauss' noise): fraction of active particles to apply gaussian noise to
             counter (kicks or list): whether to count a cycle as one kick or 
                 one run over the input list
             scale_x (float): scale system in x-direction (function keeps particle area the same, no need for double inputting to account for particle area)
@@ -344,7 +360,7 @@ class Monodisperse(ParticleSystem):
         Returns:
             (plots) Histograms showing the distribution and mean of particle displacement and angle for particles chosen by noise
         """
-        displacement = self.train(area_frac, kick, cycles, noise_type, noise_val, counter, scale_x, scale_y, iso_noise, noise_data = True)[1]
+        displacement = self.train(area_frac, kick, cycles, noise_type, noise_val, particle_frac, counter, scale_x, scale_y, iso_noise, noise_data = True)[1]
         disp = []
         theta  = []
         for i in range(len(displacement)):
@@ -359,8 +375,12 @@ class Monodisperse(ParticleSystem):
         ts = np.std(theta)
         ts_pi = ts/np.pi
         plt.hist(disp,bins=45)
-        plt.axvline(dm,color='r',ls='--',label='Displacement Mean: %.2f' % dm)
-        plt.axvline(dm+ds,color='k',ls='--',label='Standard Deviation: %.2f' % ds)
+        if (dm >= 1E-1) or (ds >= 1E-1):
+            plt.axvline(dm,color='r',ls='--',label='Displacement Mean: %.2f' % dm)
+            plt.axvline(dm+ds,color='k',ls='--',label='Standard Deviation: %.2f' % ds)
+        else:
+            plt.axvline(dm,color='r',ls='--',label='Displacement Mean: %.2E' % dm)
+            plt.axvline(dm+ds,color='k',ls='--',label='Standard Deviation: %.2E' % ds)
         plt.axvline(dm-ds,color='k',ls='--')
         plt.title('Noise Displacement Distribution')
         plt.xlabel('Noise Displacement')
@@ -379,7 +399,86 @@ class Monodisperse(ParticleSystem):
         plt.legend()
         plt.show()
 
-    def particle_plot(self, area_frac, scale_x = 1, scale_y = 1, shape = 'circle', mode = 'none', sub1 = 0, sub2 = 0, show = True, extend = False, figsize = (7,7), filename=None):
+    def noise_comparison_plot(self, area_frac, kick, cycles, noise_type, noise_val, particle_frac = 1, counter = 'list', scale_x = 1, scale_y = 1, angle_ymax = 3000, disp_ymax = 5000, xmax = 400):
+        """
+        Trains the system and finds the distribution of particle displacement and angle for particles chosen by noise for the last (cycles) cycles
+        *** Only works for one area fraction at a time ***
+        
+        Args:
+            area_frac (float): the area fraction to train on
+            kick (float): the maximum distance particles are repelled
+            cycles (int): The upper bound on the number of cycles to train and to gather noise data
+            noise_type: none for no noise
+                gauss for a gaussian distribution about the particle position,
+                drop for reset fraction of particles each cycle
+            noise_val (float): Value for standard deviation of gaussian noise to particle 
+                position in each cycle
+            particle_frac (for 'gauss' noise): fraction of active particles to apply gaussian noise to
+            counter (kicks or list): whether to count a cycle as one kick or 
+                one run over the input list
+            scale_x (float): scale system in x-direction (function keeps particle area the same, no need for double inputting to account for particle area)
+            scale_y (float): scale system in y-direction (function keeps particle area the same, no need for double inputting to account for particle area)
+            xmax (float): maximum x position to display in displacement plot
+            disp_ymax (float): maximum y position to display in displacement plot
+            angle_ymax (float): maximum y position to display in angle plot
+
+        Returns:
+            (plots) Histograms showing the distribution and mean of particle displacement and angle for particles chosen by noise
+        """
+        aniso_displacement = self.train(area_frac, kick, cycles, noise_type, noise_val, particle_frac, counter, scale_x, scale_y, iso_noise=False, noise_data = True)[1]
+        self.reset()
+        iso_displacement = self.train(area_frac, kick, cycles, noise_type, noise_val, particle_frac, counter, scale_x, scale_y, iso_noise=True, noise_data = True)[1]
+        a_disp = []
+        a_theta  = []
+        i_disp = []
+        i_theta  = []
+        for i in range(len(aniso_displacement)):
+            dya = abs(aniso_displacement[i][1])
+            dxa = abs(aniso_displacement[i][0])
+            a_disp.append(np.sqrt(dxa**2+dya**2))
+            a_theta.append(np.arctan2(dya,dxa))
+        for i in range(len(iso_displacement)):
+            dyi = abs(iso_displacement[i][1])
+            dxi = abs(iso_displacement[i][0])
+            i_disp.append(np.sqrt(dxi**2+dyi**2))
+            i_theta.append(np.arctan2(dyi,dxi))
+        dma = np.mean(a_disp)
+        dsa = np.std(a_disp)
+        tma = np.mean(a_theta)
+        tma_pi = tma/np.pi
+        tsa = np.std(a_theta)
+        tsa_pi = tsa/np.pi
+
+        dmi = np.mean(i_disp)
+        dsi = np.std(i_disp)
+        tmi = np.mean(i_theta)
+        tmi_pi = tmi/np.pi
+        tsi = np.std(i_theta)
+        tsi_pi = tsi/np.pi
+
+        plt.hist(a_disp,bins=45,range=(0,xmax))
+        plt.hist(i_disp,bins=45,alpha=.5,range=(0,xmax))
+        plt.ylim(0,disp_ymax)
+        plt.title('Noise Displacement Distribution')
+        plt.xlabel('Noise Displacement')
+        plt.ylabel('Count')
+        if (dmi <= 1E-1) or (dsi <= 1E-1) or (dma <= 1E-1) or (dsa <= 1E-1):
+            plt.legend(['Isotropic: $\mu$ = %.2E, $\sigma$ = %.2E' % (dmi,dsi),'Anisotropic: $\mu$ = %.2E, $\sigma$ = %.2E' % (dma,dsa)],bbox_to_anchor=(1.75, 1))
+        else:
+            plt.legend(['Isotropic: $\mu$ = %.2f, $\sigma$ = %.2f' % (dmi,dsi),'Anisotropic: $\mu$ = %.2f, $\sigma$ = %.2f' % (dma,dsa)],bbox_to_anchor=(1.67, 1))
+        plt.show()
+
+        plt.hist(i_theta,bins=45)
+        plt.hist(a_theta,bins=45,alpha=.5)
+        plt.ylim(0,angle_ymax)
+        plt.title('Noise Angle Distribution')
+        plt.xlabel('Noise Angle [rad]')
+        plt.ylabel('Count')
+        plt.xticks([0,np.pi/4,np.pi/2],labels=['0','$\pi/4$','$\pi/2$'])
+        plt.legend(['Isotropic: $\mu$ = %.2f$\pi$, $\sigma$ = %.2f$\pi$' % (tmi_pi,tsi_pi),'Anisotropic: $\mu$ = %.2f$\pi$, $\sigma$ = %.2f$\pi$' % (tma_pi,tsa_pi)],bbox_to_anchor=(1.65, 1))
+        plt.show()
+
+    def particle_plot(self, area_frac, scale_x = 1, scale_y = 1, shape = 'circle', mode = 'none', sub1 = 0, sub2 = 0, show = True, extend = False, figsize_x = 7, figsize_y = 7, transform_box = False, filename=None):
         """
         Show plot of physical particle placement in 2-D box 
         
@@ -393,12 +492,20 @@ class Monodisperse(ParticleSystem):
             sub2 (float): Upper area fraction bound for subtract
             show (bool): default True. Display the plot after generation
             extend (bool): default False. Show wrap around the periodic boundary.
-            figsize ((int,int)): default (7,7). Scales the size of the figure
+            figsize_x int: default 7. Scales the size of the figure in x-direction
+            figsize_y int: default 7. Scales the size of the figure in y-direction
+            transform_box (bool): default False.  True: display figure relative to transform size.
+              It is suggested to use shape = 'ellipse' so that the final visual is circular particles in a transformed box.
             filename (string): optional. Destination to save the plot. If None, the figure is not saved. 
         """
         radius = self.equiv_swell(area_frac)/2
         boxsize = self.boxsize
-        fig = plt.figure(figsize = figsize)
+        fig_x_xform = figsize_x*scale_x
+        fig_y_xform = figsize_y*scale_y
+        if transform_box == True:
+            fig = plt.figure(figsize = (fig_x_xform,fig_y_xform))
+        else:
+            fig = plt.figure(figsize = (figsize_x,figsize_y))
         plt.axis('off')
         ax = plt.gca()
         xform_boxsize_x = (self.boxsize_x*scale_x)
@@ -489,6 +596,69 @@ class Monodisperse(ParticleSystem):
         if show == True:
             plt.show()
         plt.close()
+
+    def drop_noise_plot(self, area_frac, noise_val, scale_x = 1, scale_y = 1, iso_noise = False, figsize_x = 7, figsize_y = 7,show = True, filename=None):
+        """
+        Show plot of physical particle placement with an overlay of drop noise displacement vectors.
+        It is recommended to run on a trained system, since this function currently applies one round of anisotropic noise on top of any existing system.
+        
+        Args:
+            area_frac (float): The diameter length at which the particles are illustrated
+            noise (float): Value for standard deviation of gaussian noise to particle 
+                position in each cycle
+            scale_x (float): scaling in x direction
+            scale_y (float): scaling in y direction
+            iso_noise (bool): default True.  Whether to use isotropic noise or anisotropic noise.  Isotropic noise doesn't consider anisotropoic transformations,
+                whereas anisotropic noise considers transformations.
+            show (bool): default True. Display the plot after generation
+            figsize_x int: default 7. Scales the size of the figure in x-direction
+            figsize_y int: default 7. Scales the size of the figure in y-direction
+            filename (string): optional. Destination to save the plot. If None, the figure is not saved. 
+        """
+        radius = self.equiv_swell(area_frac)/2
+        xform_boxsize_x = (self.boxsize_x*scale_x)
+        xform_boxsize_y = (self.boxsize_y*scale_y)
+        if iso_noise == False:
+            fig_x = figsize_x*scale_x
+            fig_y = figsize_y*scale_y
+        else:
+            fig_x = figsize_x
+            fig_y = figsize_y
+        fig = plt.figure(figsize = (fig_x,fig_y))
+        plt.axis('off')
+        ax = plt.gca()
+        xform_boxsize_x = (self.boxsize_x*scale_x)
+        xform_boxsize_y = (self.boxsize_y*scale_y)
+        if iso_noise == False:
+            self.transform_centers(scale_x,scale_y)
+            coords = self.centers.copy()
+            self.anisotropic_noise('drop',noise_val,scale_x,scale_y)
+            self.anisotropic_wrap(scale_x, scale_y)
+        else:
+            coords = self.centers.copy()
+            self.pos_noise('drop',noise_val)
+        for pair in self.centers:
+            ax.add_artist(Circle(xy=(pair), radius = radius,alpha=.5))
+        for i in range(len(self.centers)):
+            if np.all(coords[i] == self.centers[i]) == False:
+                color = (random.random(),random.random(),random.random())
+                ax.add_artist(FancyArrowPatch(coords[i],self.centers[i],mutation_scale=17,color=color,ec='k'))
+                ax.add_artist(Circle(xy=(self.centers[i]), radius = radius, color = color,alpha=.65))
+        if iso_noise == False:
+            plt.xlim(0, xform_boxsize_x)
+            plt.ylim(0, xform_boxsize_y)
+        else:
+            plt.xlim(0, self.boxsize_x)
+            plt.ylim(0, self.boxsize_y)
+        fig.tight_layout()
+        if filename != None:
+            plt.savefig(filename)
+        if show == True:
+            plt.show()
+        plt.close()
+        if iso_noise == False:
+            self.inv_transform_centers(scale_x, scale_y)
+
 
     def _tag_count(self, swells):
         """
