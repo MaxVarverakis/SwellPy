@@ -65,8 +65,26 @@ class ParticleSystem():
         np.putmask(centers, centers>=boxsize, centers % boxsize)
         np.putmask(centers, centers<0, centers % boxsize)
 
+    def anisotropic_wrap(self,scale_x = 1, scale_y = 1):
+        """
+        Applies periodic boundaries to any particles outside of the transformed box.
+        scale_x (float): scaling in x direction
+        scale_y (float): scaling in y direction
+        """
+        trans_boxsize_x = scale_x*self.boxsize_x
+        trans_boxsize_y = scale_y*self.boxsize_y  
+        # Wrap if outside of boundaries
+        for center in self.centers:
+            if center[0] >= trans_boxsize_x:
+                center[0] = center[0] % trans_boxsize_x
+            if center[1] >= trans_boxsize_y:
+                center[1] = center[1] % trans_boxsize_y
+            if center[0] < 0:
+                center[0] = center[0] % trans_boxsize_x
+            if center[1] < 0:
+                center[1] = center[1] % trans_boxsize_y
     
-    def pos_noise(self, noise_type, noise_val):
+    def pos_noise(self, noise_type, noise_val, particle_frac = 1):
         """
         adds random noise to the position of each particle, typically used before each swell
         
@@ -76,11 +94,20 @@ class ParticleSystem():
                         drop for reset fraction of particles each cycle
             noise_val:  standard deviation for gauss
                         fraction of active particles for drop
+            particle_frac (for 'gauss' noise): fraction of active particles to apply gaussian noise to
         """
         if noise_type=='gauss':
-            centers = self.centers
-            kicks = np.random.normal(0, noise_val, size=np.shape(centers))
-            self.centers = centers+kicks
+            particles=len(self.centers)
+            kicks = np.random.normal(0, noise_val, size=np.shape(self.centers))
+            gauss_indicies=[]
+            options=np.linspace(0, particles-1, particles)
+            options=options.astype(int)
+            while len(gauss_indicies)<(particle_frac*particles):
+                i=np.random.randint(0,len(options)-1)
+                gauss_indicies.append(options[i])
+                np.delete(options, i)
+            for i in gauss_indicies:
+                self.centers[i] = self.centers[i]+kicks[i]
             pass
         elif noise_type=='drop':
             particles=len(self.centers)
@@ -97,21 +124,34 @@ class ParticleSystem():
         else:
             pass
             
-    def anisotropic_noise(self, noise_type, noise_val,scale_x,scale_y):
+    def anisotropic_noise(self, noise_type, noise_val, particle_frac = 1, scale_x = 1,scale_y = 1):
         """
         adds random noise to the position of each particle taking into accound transform size, typically used before each swell
-        
+        *make sure to wrap with anisotropic_wrap*
+
         Args: 
             noise_type: none for no noise
                         gauss for a gaussian distribution about the particle position,
                         drop for reset fraction of particles each cycle
             noise_val:  standard deviation for gauss
                         fraction of active particles for drop
+            particle_frac (for 'gauss' noise): fraction of active particles to apply gaussian noise to
+            scale_x (float): scaling in x direction
+            scale_y (float): scaling in y direction
         """
         if noise_type=='gauss':
-            centers = self.centers
-            kicks = np.random.normal(0, noise_val, size=np.shape(centers))
-            self.centers = centers+kicks
+            particles=len(self.centers)
+            kicks = np.random.normal(0, noise_val, size=np.shape(self.centers))
+            gauss_indicies=[]
+            options=np.linspace(0, particles-1, particles)
+            options=options.astype(int)
+            while len(gauss_indicies)<(particle_frac*particles):
+                i=np.random.randint(0,len(options)-1)
+                gauss_indicies.append(options[i])
+                np.delete(options, i)
+            for i in gauss_indicies:
+                self.centers[i][0] = self.centers[i][0]+scale_x*kicks[i][0]
+                self.centers[i][1] = self.centers[i][1]+scale_y*kicks[i][1]
             pass
         elif noise_type=='drop':
             particles=len(self.centers)
@@ -123,8 +163,8 @@ class ParticleSystem():
                 reset_indicies.append(options[i])
                 np.delete(options, i)
             for i in reset_indicies:
-                self.centers[i][0]=self.boxsize_x*scale_x*np.random.random_sample((1,))
-                self.centers[i][1]=self.boxsize_y*scale_y*np.random.random_sample((1,))
+                self.centers[i][0]=(scale_x*self.boxsize_x)*np.random.random_sample((1,))
+                self.centers[i][1]=(scale_y*self.boxsize_y)*np.random.random_sample((1,))
         else:
             pass
     
