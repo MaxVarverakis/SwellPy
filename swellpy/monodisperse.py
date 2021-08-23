@@ -246,16 +246,25 @@ class Monodisperse(ParticleSystem):
         
         if not type(area_frac) == list:
             area_frac = [area_frac]
-        
+        if not (scale_x==1 and scale_y==1):
+            self.transform_centers(scale_x,scale_y)
         count = 0
         disp = []
         while (cycles > count):
             untagged = 0
             for frac in area_frac:
                 coords = self.centers.copy()
-                if iso_noise == True or (scale_x==1 and scale_y==1):
+                if (scale_x==1 and scale_y==1):
                     self.pos_noise(noise_type, noise_val, particle_frac)
                     self.wrap()
+                elif iso_noise == True and not (scale_x==1 and scale_y==1):
+                    self.inv_transform_centers(scale_x, scale_y)
+                    self.pos_noise(noise_type, noise_val, particle_frac)
+                    self.wrap()
+                    self.transform_centers(scale_x,scale_y)
+                else:
+                    self.anisotropic_noise(noise_type,noise_val,particle_frac,scale_x,scale_y)
+                    self.anisotropic_wrap(scale_x,scale_y)
                     if noise_data == True:
                         for i in range(len(self.centers)):
                             if np.all(coords[i] == self.centers[i]) == False:
@@ -266,22 +275,15 @@ class Monodisperse(ParticleSystem):
                 if (scale_x==1) and (scale_y==1):
                     pairs = self._tag(swell)
                 else:
-                    self.transform_centers(scale_x,scale_y)
-                    coords = self.centers.copy()
-                    if iso_noise == False:
-                        self.anisotropic_noise(noise_type,noise_val,particle_frac,scale_x,scale_y)
-                        self.anisotropic_wrap(scale_x, scale_y)
                     pairs = self._tag_xform(swell, xform_boxsize_x, xform_boxsize_y)
-                    if noise_data == True:
-                            for i in range(len(self.centers)):
-                                if np.all(coords[i] == self.centers[i]) == False:
-                                    disp.append([self.centers[i][0] - coords[i][0], self.centers[i][1] - coords[i][1]])
-                    self.inv_transform_centers(scale_x, scale_y)
                 if len(pairs) == 0:
                     untagged += 1
                     continue
                 self._repel(pairs, swell, kick)
-                self.wrap()
+                if not (scale_x==1 and scale_y==1):
+                    self.anisotropic_wrap(scale_x,scale_y)
+                else:
+                    self.wrap()
                 if counter == 'kicks':
                     count += 1
                     if count >= cycles:
@@ -290,6 +292,8 @@ class Monodisperse(ParticleSystem):
                 count += 1
             if (untagged == len(area_frac) and noise_val == 0):
                 break
+        if not (scale_x==1 and scale_y==1):
+            self.inv_transform_centers(scale_x,scale_y)
         if noise_data == False:
             return count
         else:
@@ -616,8 +620,8 @@ class Monodisperse(ParticleSystem):
             filename (string): optional. Destination to save the plot. If None, the figure is not saved. 
         """
         radius = self.equiv_swell(area_frac)/2
-        xform_boxsize_x = (self.boxsize_x*scale_x)
-        xform_boxsize_y = (self.boxsize_y*scale_y)
+        xform_boxsize_x = self.boxsize_x*scale_x
+        xform_boxsize_y = self.boxsize_y*scale_y
         if iso_noise == False:
             fig_x = figsize_x*scale_x
             fig_y = figsize_y*scale_y
@@ -627,13 +631,10 @@ class Monodisperse(ParticleSystem):
         fig = plt.figure(figsize = (fig_x,fig_y))
         plt.axis('off')
         ax = plt.gca()
-        xform_boxsize_x = (self.boxsize_x*scale_x)
-        xform_boxsize_y = (self.boxsize_y*scale_y)
         if iso_noise == False:
             self.transform_centers(scale_x,scale_y)
             coords = self.centers.copy()
-            self.anisotropic_noise('drop',noise_val,scale_x,scale_y)
-            self.anisotropic_wrap(scale_x, scale_y)
+            self.anisotropic_noise('drop',noise_val,scale_x=scale_x,scale_y=scale_y)
         else:
             coords = self.centers.copy()
             self.pos_noise('drop',noise_val)
@@ -658,8 +659,7 @@ class Monodisperse(ParticleSystem):
         plt.close()
         if iso_noise == False:
             self.inv_transform_centers(scale_x, scale_y)
-
-
+            
     def _tag_count(self, swells):
         """
         Returns the number of tagged pairs at a specific area fraction
