@@ -139,6 +139,8 @@ class ParticleSystem():
             scale_x (float): scaling in x direction
             scale_y (float): scaling in y direction
         """
+        xform_boxsize_x = scale_x*self.boxsize_x
+        xform_boxsize_y = scale_y*self.boxsize_y
         if noise_type=='gauss':
             particles=len(self.centers)
             kicks = np.random.normal(0, noise_val, size=np.shape(self.centers))
@@ -163,8 +165,8 @@ class ParticleSystem():
                 reset_indicies.append(options[i])
                 np.delete(options, i)
             for i in reset_indicies:
-                self.centers[i][0]=(scale_x*self.boxsize_x)*np.random.random_sample((1,))
-                self.centers[i][1]=(scale_y*self.boxsize_y)*np.random.random_sample((1,))
+                self.centers[i][0]=xform_boxsize_x*np.random.random_sample((1,))
+                self.centers[i][1]=xform_boxsize_y*np.random.random_sample((1,))
         else:
             pass
     
